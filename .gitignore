@@ -1,6 +1,9 @@
 /.phpunit.cache
 /node_modules
-/public/build
+# /public/build SÍ se versiona en este repo: el servidor de producción
+# (Hostinger, plan sin Node/npm) no puede correr "npm run build" — hay que
+# compilar localmente y subir el resultado. Recuerda correr "npm run build"
+# antes de cada commit que toque resources/js o resources/css.
 /public/hot
 /public/storage
 /storage/*.key
