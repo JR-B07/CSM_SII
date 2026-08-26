@@ -17,9 +17,9 @@ class StoreFormatoRequest extends FormRequest
         return [
             'nombre' => ['required', 'string', 'max:255'],
             'tipo' => ['required', Rule::in(['checklist', 'formato_trabajo', 'trigger'])],
-            // Limitado a PDF/imagen para garantizar que se pueda ver e
-            // imprimir directo desde el navegador, sin depender de Word/Excel.
-            'archivo' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png', 'max:10240'],
+            // PDF/imagen se pueden ver e imprimir directo desde el navegador;
+            // Word/Excel se descargan para abrirse en su programa correspondiente.
+            'archivo' => ['required', 'file', 'mimes:pdf,jpg,jpeg,png,doc,docx,xls,xlsx', 'max:10240'],
         ];
     }
 }

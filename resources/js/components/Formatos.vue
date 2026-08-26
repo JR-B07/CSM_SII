@@ -15,12 +15,12 @@
           <option value="formato_trabajo">Formato de trabajo</option>
           <option value="trigger">Trigger</option>
         </select>
-        <input @change="onArchivo" type="file" accept=".pdf,.jpg,.jpeg,.png" required class="input sm:col-span-2" />
+        <input @change="onArchivo" type="file" accept=".pdf,.jpg,.jpeg,.png,.doc,.docx,.xls,.xlsx" required class="input sm:col-span-2" />
         <button type="submit" :disabled="subiendo" class="btn-primary sm:col-span-2">
           {{ subiendo ? 'Subiendo…' : 'Subir formato' }}
         </button>
       </form>
-      <p class="text-xs text-slate-400 mt-2">Solo PDF o imagen (JPG/PNG), para poder verse e imprimirse directo desde el navegador.</p>
+      <p class="text-xs text-slate-400 mt-2">PDF, imagen (JPG/PNG), Word o Excel. Máximo 10 MB. PDF e imagen se pueden ver e imprimir directo en el navegador; Word/Excel se descargan.</p>
       <p v-if="error" class="field-error">{{ error }}</p>
       <p v-if="mensaje" class="text-green-700 text-sm mt-2">{{ mensaje }}</p>
     </div>

@@ -33,7 +33,7 @@ class FormatoTest extends TestCase
         ]);
     }
 
-    public function test_no_se_aceptan_archivos_fuera_de_pdf_o_imagen(): void
+    public function test_no_se_aceptan_archivos_fuera_de_los_formatos_permitidos(): void
     {
         Storage::fake('local');
 
@@ -42,11 +42,36 @@ class FormatoTest extends TestCase
         $response = $this->actingAs($rescatista)->postJson('/formatos/upload', [
             'nombre' => 'Formato inválido',
             'tipo' => 'checklist',
-            'archivo' => UploadedFile::fake()->create('formato.docx', 100),
+            'archivo' => UploadedFile::fake()->create('formato.zip', 100),
         ]);
 
         $response->assertStatus(422);
         $this->assertDatabaseMissing('formatos', ['nombre' => 'Formato inválido']);
+    }
+
+    public function test_se_aceptan_archivos_de_word_y_excel(): void
+    {
+        Storage::fake('local');
+
+        $rescatista = Usuario::factory()->rol('rescatista')->create();
+
+        $response = $this->actingAs($rescatista)->postJson('/formatos/upload', [
+            'nombre' => 'Checklist en Word',
+            'tipo' => 'checklist',
+            'archivo' => UploadedFile::fake()->create('checklist.docx', 100),
+        ]);
+
+        $response->assertCreated();
+        $this->assertDatabaseHas('formatos', ['nombre' => 'Checklist en Word']);
+
+        $response = $this->actingAs($rescatista)->postJson('/formatos/upload', [
+            'nombre' => 'Formato en Excel',
+            'tipo' => 'formato_trabajo',
+            'archivo' => UploadedFile::fake()->create('formato.xlsx', 100),
+        ]);
+
+        $response->assertCreated();
+        $this->assertDatabaseHas('formatos', ['nombre' => 'Formato en Excel']);
     }
 
     public function test_cualquier_usuario_autenticado_puede_listar_y_filtrar_formatos(): void
