@@ -139,4 +139,16 @@ class UsuarioTest extends TestCase
             ->assertOk()
             ->assertJsonFragment(['email' => 'nuevo@example.com']);
     }
+
+    public function test_el_listado_no_esconde_usuarios_al_pasar_de_20(): void
+    {
+        $admin = Usuario::factory()->rol('admin')->create();
+        Usuario::factory()->count(25)->rol('rescatista')->create();
+
+        $response = $this->actingAs($admin)->getJson('/usuarios/data');
+
+        $response->assertOk();
+        // 25 rescatistas + el admin de este test.
+        $this->assertCount(26, $response->json('data'));
+    }
 }

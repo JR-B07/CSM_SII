@@ -822,4 +822,16 @@ Rutas: Ver rutas Laravel anterior
 
 ---
 
-**¡Listo para empezar con Laravel! 🚀**1
+**¡Listo para empezar con Laravel! 🚀**
+
+
+Admin:
+
+
+Correo:      director@csm-operaciones.com.mx
+Contraseña:  password
+RH:
+
+
+Correo:      rh@csm-operaciones.com.mx
+Contraseña:  password

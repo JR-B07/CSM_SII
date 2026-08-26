@@ -28,8 +28,11 @@ class UsuarioController extends Controller
      */
     public function index(): JsonResponse
     {
+        // Sin controles de "siguiente página" en la vista, un límite bajo
+        // deja usuarios invisibles sin avisar. 200 cubre de sobra el
+        // tamaño real de la empresa (14 empleados) más años de crecimiento.
         return response()->json(
-            Usuario::where('estado_cuenta', 'aprobado')->orderBy('nombre')->paginate(20)
+            Usuario::where('estado_cuenta', 'aprobado')->orderBy('nombre')->paginate(200)
         );
     }
 

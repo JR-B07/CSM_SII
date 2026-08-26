@@ -12,6 +12,13 @@
 
     <div v-if="mensaje" class="alert-success mb-4">{{ mensaje }}</div>
 
+    <input
+      v-model="busqueda"
+      type="text"
+      placeholder="Buscar por nombre, correo, rol o departamento…"
+      class="input mb-4"
+    />
+
     <div class="table-wrap">
       <table class="table-base">
         <thead>
@@ -25,7 +32,7 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="u in usuarios" :key="u.id">
+          <tr v-for="u in usuariosFiltrados" :key="u.id">
             <td class="font-medium text-slate-900">{{ u.nombre }}</td>
             <td>{{ u.email }}</td>
             <td>{{ u.rol }}</td>
@@ -46,14 +53,23 @@
               </button>
             </td>
           </tr>
+          <tr v-if="!cargando && usuariosFiltrados.length === 0">
+            <td colspan="6" class="text-center text-slate-400 py-6">
+              Ningún usuario coincide con tu búsqueda.
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>
+
+    <p class="text-sm text-slate-400 mt-2">
+      Mostrando {{ usuariosFiltrados.length }} de {{ usuarios.length }} usuarios.
+    </p>
   </div>
 </template>
 
 <script>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 
 export default {
@@ -64,10 +80,28 @@ export default {
   setup(props) {
     const usuarios = ref([])
     const mensaje = ref('')
+    const cargando = ref(false)
+    const busqueda = ref('')
+
+    const usuariosFiltrados = computed(() => {
+      const texto = busqueda.value.trim().toLowerCase()
+      if (!texto) return usuarios.value
+
+      return usuarios.value.filter((u) =>
+        [u.nombre, u.email, u.rol, u.departamento]
+          .filter(Boolean)
+          .some((campo) => campo.toLowerCase().includes(texto))
+      )
+    })
 
     const cargar = async () => {
-      const { data } = await axios.get('/usuarios/data')
-      usuarios.value = data.data ?? data
+      cargando.value = true
+      try {
+        const { data } = await axios.get('/usuarios/data')
+        usuarios.value = data.data ?? data
+      } finally {
+        cargando.value = false
+      }
     }
 
     if (props.status) {
@@ -92,7 +126,7 @@ export default {
 
     onMounted(cargar)
 
-    return { usuarios, mensaje, darDeBaja, reactivar }
+    return { usuarios, usuariosFiltrados, busqueda, cargando, mensaje, darDeBaja, reactivar }
   },
 }
 </script>
