@@ -16,7 +16,7 @@ return new class extends Migration
             $table->time('hora_entrada')->nullable()->comment('Hora de check-in');
             $table->time('hora_salida')->nullable()->comment('Hora de check-out');
             $table->decimal('ubicacion_lat', 10, 8)->nullable()->comment('Latitud GPS capturada en el check-in');
-            $table->decimal('ubicacion_lng', 10, 8)->nullable()->comment('Longitud GPS capturada en el check-in');
+            $table->decimal('ubicacion_lng', 11, 8)->nullable()->comment('Longitud GPS capturada en el check-in');
             $table->string('foto_verificacion', 255)->nullable()->comment('Ruta en storage de la foto de verificación');
             $table->string('proyecto', 100)->nullable()->comment('Proyecto asignado al momento del check-in');
             $table->enum('estado', ['presente', 'ausente', 'tarde', 'justificado'])
