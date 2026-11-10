@@ -22,20 +22,37 @@
             {{-- Menú de escritorio --}}
             <div class="hidden lg:flex items-center gap-1 text-sm">
                 <a href="{{ route('dashboard') }}" class="px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900">Inicio</a>
-                <a href="{{ route('asistencias.checkin.form') }}" class="px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900">Asistencia</a>
+                @unless (auth()->user()?->esAdmin())
+                    <a href="{{ route('asistencias.checkin.form') }}" class="px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900">Asistencia</a>
+                @endunless
                 <a href="{{ route('nominas.minomina.view') }}" class="px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900">Mi Nómina</a>
                 <a href="{{ route('documentos.index.view') }}" class="px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900">Documentos</a>
                 <a href="{{ route('formatos.index.view') }}" class="px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900">Formatos</a>
-                <a href="{{ route('perfil.mostrar') }}" class="px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900">Mi Perfil</a>
+                <a href="{{ route('documentos-bos-ofs.index.view') }}" class="px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900">BOS / OFS</a>
                 @auth
                     @if (auth()->user()->esRH())
-                        <a href="{{ route('asistencias.index.view') }}" class="px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900">Gestionar Asistencias</a>
-                        <a href="{{ route('usuarios.pendientes.view') }}" class="px-3 py-2 rounded-lg text-amber-600 hover:bg-amber-50 font-medium">Pendientes</a>
+                        <div class="relative group">
+                            <button type="button" class="px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900 flex items-center gap-1">
+                                Administración
+                                <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                                </svg>
+                            </button>
+                            <div class="hidden group-hover:block group-focus-within:block absolute left-0 top-full pt-1 min-w-[12rem] z-50">
+                                <div class="bg-white border border-slate-200 rounded-lg shadow-lg py-1">
+                                    <a href="{{ route('asistencias.index.view') }}" class="block px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900">Gestionar Asistencias</a>
+                                    <a href="{{ route('nominas.index.view') }}" class="block px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900">Nóminas</a>
+                                    <a href="{{ route('usuarios.pendientes.view') }}" class="block px-4 py-2 text-sm text-amber-600 hover:bg-amber-50 font-medium">Pendientes</a>
+                                    @if (auth()->user()->esAdmin())
+                                        <a href="{{ route('usuarios.index') }}" class="block px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 hover:text-slate-900">Usuarios</a>
+                                    @endif
+                                </div>
+                            </div>
+                        </div>
                     @endif
-                    @if (auth()->user()->esAdmin())
-                        <a href="{{ route('usuarios.index') }}" class="px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900">Usuarios</a>
-                    @endif
-
+                @endauth
+                <a href="{{ route('perfil.mostrar') }}" class="px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100 hover:text-slate-900">Mi Perfil</a>
+                @auth
                     <div class="w-px h-6 bg-slate-200 mx-1"></div>
 
                     <span class="px-3 text-slate-400 text-xs">{{ auth()->user()->nombre }}</span>
@@ -58,14 +75,18 @@
         <div class="hidden peer-checked:block lg:hidden border-t border-slate-200 bg-white max-h-[calc(100vh-3.5rem)] overflow-y-auto">
             <div class="px-2 py-2 flex flex-col text-[15px]">
                 <a href="{{ route('dashboard') }}" class="px-3 py-3 rounded-lg text-slate-700 hover:bg-slate-100 active:bg-slate-100">Inicio</a>
-                <a href="{{ route('asistencias.checkin.form') }}" class="px-3 py-3 rounded-lg text-slate-700 hover:bg-slate-100 active:bg-slate-100">Asistencia</a>
+                @unless (auth()->user()?->esAdmin())
+                    <a href="{{ route('asistencias.checkin.form') }}" class="px-3 py-3 rounded-lg text-slate-700 hover:bg-slate-100 active:bg-slate-100">Asistencia</a>
+                @endunless
                 <a href="{{ route('nominas.minomina.view') }}" class="px-3 py-3 rounded-lg text-slate-700 hover:bg-slate-100 active:bg-slate-100">Mi Nómina</a>
                 <a href="{{ route('documentos.index.view') }}" class="px-3 py-3 rounded-lg text-slate-700 hover:bg-slate-100 active:bg-slate-100">Documentos</a>
                 <a href="{{ route('formatos.index.view') }}" class="px-3 py-3 rounded-lg text-slate-700 hover:bg-slate-100 active:bg-slate-100">Formatos</a>
+                <a href="{{ route('documentos-bos-ofs.index.view') }}" class="px-3 py-3 rounded-lg text-slate-700 hover:bg-slate-100 active:bg-slate-100">BOS / OFS</a>
                 <a href="{{ route('perfil.mostrar') }}" class="px-3 py-3 rounded-lg text-slate-700 hover:bg-slate-100 active:bg-slate-100">Mi Perfil</a>
                 @auth
                     @if (auth()->user()->esRH())
                         <a href="{{ route('asistencias.index.view') }}" class="px-3 py-3 rounded-lg text-slate-700 hover:bg-slate-100 active:bg-slate-100">Gestionar Asistencias</a>
+                        <a href="{{ route('nominas.index.view') }}" class="px-3 py-3 rounded-lg text-slate-700 hover:bg-slate-100 active:bg-slate-100">Nóminas</a>
                         <a href="{{ route('usuarios.pendientes.view') }}" class="px-3 py-3 rounded-lg text-amber-600 font-medium hover:bg-amber-50">Pendientes</a>
                     @endif
                     @if (auth()->user()->esAdmin())

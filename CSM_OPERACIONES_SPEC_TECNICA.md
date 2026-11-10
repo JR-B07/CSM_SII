@@ -1,837 +1,398 @@
-# CSM OPERACIONES - ESPECIFICACIÓN TÉCNICA PARA DESARROLLO
+# CSM OPERACIONES - ESPECIFICACIÓN TÉCNICA
+
+> **Estado: en producción.** Este documento empezó como la especificación de diseño antes de desarrollar el sistema. Ahora describe el sistema **tal como está construido y desplegado**, incluyendo módulos que no estaban en el plan original y ajustes que surgieron durante el desarrollo y la operación real. La sección "Historial de cambios" resume qué cambió respecto al plan inicial.
 
 ## 📋 RESUMEN DEL PROYECTO
 
-**Empresa:** CSM Operaciones (Servicios Técnicos Industriales)  
-**Ubicación:** San Luis de la Paz, Guanajuato, México  
-**Empleados:** 14  
-**Presupuesto:** $9,745 USD  
-**Timeline:** 16 semanas (Entrega: 10 diciembre 2026)  
-**Director:** Juan Héctor Morín Torres  
-**Desarrollador:** José Ricardo Becerra Covarrubias (DevSistems)  
+**Empresa:** CSM Operaciones (Servicios Técnicos Industriales)
+**Ubicación:** San Luis de la Paz, Guanajuato, México
+**Empleados:** 14
+**Director:** Juan Héctor Morín Torres
+**Desarrollador:** José Ricardo Becerra Covarrubias (DevSistems)
 
-**Objetivo:** Crear plataforma integral con Laravel, PHP, Blade y Vue.js que incluya página web profesional, sistema de asistencias automatizado, gestión centralizada de documentos, y nómina automática basada en días asistidos.
+**Sitio en producción:** `https://csm-operaciones-sii.devsistems.com` (Hostinger, plan compartido)
+**Repositorio:** GitHub (`JR-B07/CSM_SII`, rama `main`), desplegado por Hostinger vía Git a `public_html/csm-app`
+
+**Objetivo:** Plataforma integral con Laravel + Vue.js: página web pública, portal interno de empleados con asistencias por check-in, nómina quincenal automática, gestión de documentos de proyecto y documentos legales del personal, y una librería de formatos imprimibles.
 
 ---
 
-## 🎯 MÓDULOS A DESARROLLAR
+## 🔄 HISTORIAL DE CAMBIOS RESPECTO AL PLAN ORIGINAL
+
+Lo más importante para quien retome este proyecto:
+
+- **Nómina pasó de mensual a quincenal** (corte 1-15 y 16-fin de mes), con recálculo **en vivo** en cada check-in/check-out/justificación — no depende solo del job nocturno.
+- **Se quitó el descuento automático por retardos.** Un día "tarde" se paga igual que "presente"; el estado queda registrado para referencia de RH, pero ya no resta del pago. Solo las faltas (`ausente`) generan descuento.
+- **RH ahora marca manualmente una nómina como "pagada"** (antes no existía esa acción en la UI).
+- **El rol `técnico` se renombró a `rescatista`** en todo el sistema (base de datos incluida).
+- **Se agregaron 3 módulos que no estaban en el plan original:**
+  - **Formatos** — librería de checklists/formatos de trabajo/triggers, subibles e imprimibles por cualquier empleado.
+  - **Documentos legales** — papelería personal de cada empleado (IMSS, INE, RFC, CURP, contrato, etc.), gestionada por RH/admin.
+  - **Registro y aprobación de cuentas** — autorregistro de empleados con cola de aprobación por un admin (antes todas las cuentas las creaba un admin directamente).
+- **Gestión de usuarios (CRUD + dar de baja/reactivar)** se agregó completa; no estaba detallada en el plan original.
+- **No se usa Laravel Passport, Vue Router ni un SPA real.** Cada vista es una página Blade normal que monta **un** componente Vue aislado vía `createApp().mount('#selector')`. Vue Router está en `package.json` pero no se usa.
+- **El Laravel Scheduler no corre como daemon** (`schedule:work`): Hostinger no permite procesos persistentes. Se simula con un cron cada ~2 minutos que ejecuta `php artisan schedule:run`.
+- **No hay worker de colas corriendo en producción** (`QUEUE_CONNECTION=database` pero nada consume la tabla `jobs`). El job nocturno de nómina (`CalcularNominasJob`) sigue existiendo como respaldo, pero el cálculo real ya no depende de él — ver nota en Nómina.
+- **Hostinger shared hosting impuso varias limitaciones no previstas** que cambiaron cómo se despliega todo — ver la sección "Despliegue en Hostinger".
+
+---
+
+## 🎯 MÓDULOS
 
 ### 1. PÁGINA WEB PÚBLICA
-- **Descripción:** Sitio profesional que reemplaza página actual desactualizada
-- **Funciones:**
-  - Homepage con hero section y servicios destacados
-  - Subpáginas: Supervisión EHS, Sistemas contra incendios, Electromecánica, Gestión de proyectos
-  - Portfolio con galería de proyectos
-  - Formulario de contacto (envía email)
-  - Blog de tips/noticias (opcional)
-  - SEO optimizado
-  - Responsive (móvil, tablet, desktop)
-- **Tech:** Blade templates + Tailwind CSS (Frontend en Laravel)
-- **Performance:** < 2 segundos carga
+- Homepage, Servicios, Portfolio, Blog, Formulario de contacto.
+- `HomepageController`, `ServiciosController`, `PortfolioController`, `BlogController`, `ContactoController` + vistas en `resources/views/web/`.
+- Blade + Tailwind CSS, sin Vue (no necesita interactividad).
 
-### 2. SISTEMA DE ASISTENCIAS
-- **Descripción:** Control automatizado de entrada/salida de técnicos
-- **Funciones:**
-  - Check-in/Check-out por QR (con validación)
-  - Captura de ubicación (GPS)
-  - Captura de foto de verificación
-  - Reportes: diario, semanal, mensual
-  - Justificantes de faltas
-  - Por proyecto asignado
-  - Historial personal
-- **Tech:** Laravel (backend) + Vue.js (frontend dinámico)
-- **Almacenamiento:** MySQL tabla `asistencias`
-- **Rutas en Laravel:** `/asistencias/checkin`, `/asistencias/checkout`, `/asistencias/reportes`
+### 2. AUTENTICACIÓN Y CUENTAS
+- Login con "Recordarme" (cookie persistente + email recordado prellenado en el formulario).
+- **Autorregistro** (`/registro`): un visitante crea su cuenta, nace con `estado_cuenta = pendiente` y **no puede iniciar sesión** hasta que un admin la apruebe. El registro ignora cualquier rol enviado por el usuario (siempre se asigna después, al aprobar).
+- **Cola de aprobación** (`/usuarios/pendientes`, solo RH/admin): aprobar define rol, departamento y salario diario (datos que el autorregistro nunca captura); rechazar admite un motivo opcional. Ambas acciones envían correo.
+- `AuthController`, `RegistroController`.
 
-### 3. GESTIÓN DE DOCUMENTOS
-- **Descripción:** Centralización segura de documentos de proyectos
-- **Funciones:**
-  - Upload/Download de archivos (máx 50MB/archivo)
-  - Organización jerárquica (Por cliente > Proyecto > Tipo)
-  - Permisos granulares (lectura, descarga, edición, admin)
-  - Versionamiento automático
-  - Auditoría de accesos (quién descargó, cuándo)
-  - Búsqueda por nombre/cliente/fecha
-  - Almacenamiento: 500GB en Hostinger
-- **Tech:** Laravel (gestión) + Vue.js (UI) + Blade (para admin)
-- **Seguridad:** Cada descarga registra usuario, IP, timestamp
+### 3. GESTIÓN DE USUARIOS (solo admin)
+- CRUD completo (`UsuarioController`), dar de baja / reactivar (no se borra físicamente: desactivar preserva historial de asistencias/nómina), reset de contraseña.
+- Listado con búsqueda en cliente y `paginate(200)` (sin UI de paginación — 200 cubre de sobra el tamaño real de la empresa; ver nota de bug corregido más abajo).
 
-### 4. NÓMINA AUTOMÁTICA ⭐ CRÍTICO
-- **Descripción:** Cálculo automático de pagos basado en asistencias
-- **Funciones:**
-  - **Fórmula:** (Días asistidos × Salario diario) - Descuentos = Total pago
-  - Descuentos automáticos:
-    - Faltas: -100% del día
-    - Retardos: -10-50% (configurable)
-    - Permisos justificados: 0 descuento
-  - Reportes para contador (Excel, PDF)
-  - Portal personal de técnico (ve solo su nómina)
-  - Histórico de 12 meses
-  - Exportación para sistemas contables
-  - Auditoría de cada cálculo
-  - Cálculo automático cada noche (Laravel Job/Scheduler)
-- **Tech:** Laravel (lógica) + Vue.js (visualización) + PHP (cálculos)
-- **Seguridad:** Encriptación AES-256, acceso solo autorizado
+### 4. SISTEMA DE ASISTENCIAS
+- Check-in/check-out con captura de ubicación GPS y **hora del dispositivo del empleado** (no la del servidor — si no llega, usa la del servidor como respaldo).
+- Campos libres por asistencia: **proyecto, compañía, puesto** (capturados en cada check-in, no vinculados a un catálogo fijo).
+- Escaneo de QR (librería `jsqr`) o código manual.
+- `estado` se marca `tarde` automáticamente si la hora de entrada pasa de `config('custom.asistencia.hora_limite')` (default 09:15:00); ya no genera descuento en nómina, solo queda registrado.
+- Vista de administración (RH/admin) con filtro por fecha y botón de justificar falta.
+- **No implementado del plan original:** captura de foto de verificación — el modelo/controlador tienen el soporte (`guardarFoto()`), pero `Checkin.vue` no la envía actualmente.
 
-### 5. DASHBOARD EJECUTIVO
-- **Descripción:** Panel de control para Director/RH
-- **Funciones:**
-  - **KPIs en tarjetas:** Asistencias hoy, ausencias, documentos, proyectos activos
-  - **Gráficos:**
-    - Asistencia por día (líneas)
-    - Asistencia por departamento (barras)
-    - Documentos compartidos (pastel)
-  - Mapa de técnicos en campo (tiempo real)
-  - Tabla de próximas citas
-  - Últimos documentos subidos
-  - Reportes exportables (PDF, Excel)
-- **Tech:** Vue.js + Chart.js/Apexcharts
-- **Datos:** En vivo desde Laravel backend
+### 5. DOCUMENTOS DE PROYECTO
+- Upload/descarga (máx. 50MB, sin restricción de tipo de archivo), organizados por cliente/proyecto, versionado automático, permisos granulares por documento (`permisos_documentos`), búsqueda en la lista.
+- `DocumentoController`, `DocumentoService`.
+
+### 6. DOCUMENTOS LEGALES (nuevo, no estaba en el plan original)
+- Papelería personal de cada empleado: IMSS, INE, RFC, CURP, comprobante de domicilio, contrato, acta de nacimiento, otro — con fecha de vencimiento opcional (para IMSS/contrato).
+- Gestionados por RH/admin desde el perfil de cada usuario (`/usuarios/{id}/documentos-legales`); el propio empleado solo puede ver (no subir) los suyos.
+- Retención legal: `softDeletes`, nunca se borra físicamente.
+- `DocumentoLegalController`.
+
+### 7. FORMATOS (nuevo, no estaba en el plan original)
+- Librería compartida de checklists, formatos de trabajo y triggers — cualquier empleado autenticado puede subir, consultar, filtrar por tipo e imprimir.
+- Archivos permitidos: **PDF, JPG, PNG, Word (doc/docx), Excel (xls/xlsx)**, máx. 10MB. PDF e imagen se ven e imprimen directo desde el navegador ("Ver / Imprimir"); Word/Excel se descargan (los navegadores no los renderizan inline).
+- `FormatoController`.
+
+### 8. NÓMINA QUINCENAL AUTOMÁTICA ⭐ CRÍTICO
+- **Periodo:** quincenal, corte **1-15** y **16-fin de mes** (no mensual como en el plan original).
+- **Fórmula:** `(Días asistidos × Salario diario) − Descuento por faltas = Total a pagar`
+  - Faltas (`ausente`): −100% del día.
+  - Retardos (`tarde`) y permisos justificados (`justificado`): **sin descuento**, se pagan como día asistido.
+- **Cálculo en vivo:** cada check-in, check-out y justificación de falta recalcula inmediatamente la nómina del periodo en curso (`NominaService::calcularNomina()`), para que "Mi Nómina" nunca dependa de esperar al job nocturno.
+- `CalcularNominasJob` sigue corriendo cada noche a las 23:00 (vía cron → `schedule:run`) como respaldo/corrección, no como mecanismo principal.
+- RH puede **marcar una nómina como "pagada"** (`POST /nominas/{id}/pagar`); el recálculo en vivo nunca pisa ese estado una vez marcado.
+- Comprobante en PDF por periodo, histórico de últimos periodos, reporte para contador en JSON/CSV.
+- **Seguridad:** `total_pago` encriptado AES-256-CBC (Trait `Encryptable`), nunca se borra físicamente (`softDeletes`, retención legal de 7 años).
+- `NominaController`, `NominaService`, `CalcularNominasJob`.
+
+### 9. DASHBOARD EJECUTIVO
+- KPIs: asistencias hoy, ausencias hoy, documentos totales, proyectos activos hoy.
+- Gráficos: asistencia por día (últimos 7 días), asistencia por departamento (hoy) — Chart.js vía `vue-chartjs`.
+- `DashboardController`.
 
 ---
 
 ## 🏗️ ARQUITECTURA TÉCNICA
 
-### Stack Tecnológico
+### Stack real
 
 **Backend:**
-- Laravel 11+ (PHP framework)
-- PHP 8.2+
-- Blade (motor de templates)
-- Eloquent ORM (models)
-- Laravel Scheduler (tareas automáticas)
+- Laravel 11.31+ / PHP 8.2+ (producción corre PHP 8.4)
+- `barryvdh/laravel-dompdf` (comprobantes de nómina en PDF)
+- Laravel Scheduler — **disparado por cron cada ~2 min**, no por `schedule:work` (no hay procesos persistentes en Hostinger compartido)
 
-**Frontend:**
-- Vue.js 3+ (componentes dinámicos)
-- Tailwind CSS (estilos)
-- Axios (HTTP requests)
-- Vue Router (navegación SPA)
-- Chart.js o Apexcharts (gráficos)
+**Frontend — patrón híbrido, no SPA:**
+- Vue 3 (Options API, `setup()`), montado componente-por-componente con `createApp(Componente).mount('#selector')` sobre vistas Blade normales (ver `resources/js/app.js`)
+- **No se usa Vue Router** aunque está instalado
+- Tailwind CSS 3 con clases semánticas propias (`page-header`, `card`, `btn-primary`, `table-base`, `badge-green`, etc. — ver `resources/css/app.css`)
+- Chart.js + `vue-chartjs` (Dashboard)
+- `jsqr` (escaneo de QR en check-in)
+- Vite + `laravel-vite-plugin` — **los assets compilados se commitean a git** (`public/build/`), porque Hostinger no tiene Node/npm
 
-**Base de Datos:**
-- MySQL 8.0
-- Hostinger (hosting)
-
-**Otros:**
-- Laravel Passport (OAuth tokens)
-- Laravel Queue (procesos en background)
-- Mailtrap o SendGrid (emails)
+**Base de datos:**
+- MySQL (Hostinger). Local: MySQL también (no SQLite) para producción-paridad; tests usan SQLite en memoria vía `RefreshDatabase`.
 
 **Seguridad:**
-- Encriptación AES-256 (nóminas)
-- Bcrypt (contraseñas)
-- Laravel CSRF Protection
-- Rate Limiting
-- 2FA (opcional para admin)
+- Bcrypt para contraseñas (cast `hashed` nativo de Laravel)
+- AES-256-CBC para nóminas (Trait `Encryptable` propio — no es Laravel Passport/Sanctum, es sesión + CSRF estándar)
+- CSRF estándar de Laravel
+- Auditoría propia (Trait `Auditable`, tabla `auditoria`) — no hay 2FA implementado
+
+**No implementado del plan original:** Laravel Passport/OAuth, 2FA, Mailtrap/SendGrid en producción (`MAIL_MAILER=log`, pendiente de decidir si se configura SMTP real).
 
 ---
 
-## 📊 BASE DE DATOS - SCHEMA
+## 📊 BASE DE DATOS — SCHEMA ACTUAL
 
-### Tabla: `usuarios`
+### `usuarios`
 ```sql
-id (BIGINT, PK, AUTO_INCREMENT)
-nombre (VARCHAR 100)
-email (VARCHAR 100, UNIQUE)
-rol (ENUM: técnico, supervisor, RH, admin, contador)
-departamento (VARCHAR 50)
-salario_diario (DECIMAL 10,2)
-password (VARCHAR 255, bcrypt)
-activo (BOOLEAN, default true)
-created_at (TIMESTAMP)
-updated_at (TIMESTAMP)
+id, nombre, email (unique),
+rol ENUM('rescatista','supervisor','RH','admin','contador') default 'rescatista',
+departamento, salario_diario DECIMAL(10,2),
+password (bcrypt), activo BOOLEAN default true,
+estado_cuenta ENUM('pendiente','aprobado','rechazado') default 'aprobado',
+aprobado_por (FK → usuarios, nullable), aprobado_en (timestamp, nullable),
+remember_token, timestamps
 ```
 
-### Tabla: `asistencias`
+### `asistencias`
 ```sql
-id (BIGINT, PK, AUTO_INCREMENT)
-usuario_id (BIGINT, FK → usuarios)
-fecha (DATE)
-hora_entrada (TIME)
-hora_salida (TIME, nullable)
-ubicacion_lat (DECIMAL 10,8)
-ubicacion_lng (DECIMAL 10,8)
-foto_verificacion (VARCHAR 255, path)
-proyecto (VARCHAR 100)
-estado (ENUM: presente, ausente, tarde, justificado)
-justificante (TEXT, nullable)
-created_at (TIMESTAMP)
-updated_at (TIMESTAMP)
+id, usuario_id (FK), fecha (DATE),
+hora_entrada, hora_salida (TIME, nullable),
+ubicacion_lat DECIMAL(10,8), ubicacion_lng DECIMAL(11,8),
+foto_verificacion (nullable, no usado actualmente),
+proyecto, compania, puesto (VARCHAR, capturados libremente en cada check-in),
+estado ENUM('presente','ausente','tarde','justificado'),
+justificante (TEXT, nullable), timestamps
+UNIQUE(usuario_id, fecha)
+```
+> `ubicacion_lng` es `DECIMAL(11,8)`, no `(10,8)` como en el plan original: con 2 dígitos enteros no alcanza para longitudes de 3 dígitos (México ronda -100.x).
+
+### `documentos`
+```sql
+id, nombre, ruta_archivo, tipo (string libre), tamano (bytes),
+cliente, proyecto, usuario_id (FK), version INT default 1,
+timestamps, soft deletes
 ```
 
-### Tabla: `documentos`
+### `permisos_documentos`
 ```sql
-id (BIGINT, PK, AUTO_INCREMENT)
-nombre (VARCHAR 255)
-ruta_archivo (VARCHAR 500, path en storage)
-tipo (VARCHAR 20, PDF/DOCX/XLSX/JPG/PNG)
-tamaño (BIGINT, bytes)
-cliente (VARCHAR 100)
-proyecto (VARCHAR 100)
-usuario_id (BIGINT, FK → usuarios)
-version (INT, default 1)
-created_at (TIMESTAMP)
-updated_at (TIMESTAMP)
+id, documento_id (FK), usuario_id (FK),
+nivel_permiso ENUM('lectura','lectura_descarga','edicion','admin'), timestamps
 ```
 
-### Tabla: `permisos_documentos`
+### `documentos_legales` (nuevo)
 ```sql
-id (BIGINT, PK, AUTO_INCREMENT)
-documento_id (BIGINT, FK → documentos)
-usuario_id (BIGINT, FK → usuarios)
-nivel_permiso (ENUM: lectura, lectura_descarga, edicion, admin)
-created_at (TIMESTAMP)
+id, usuario_id (FK), tipo ENUM('IMSS','INE','RFC','CURP','comprobante_domicilio','contrato','acta_nacimiento','otro'),
+numero_documento (nullable), nombre_archivo, ruta_archivo,
+fecha_vencimiento (DATE, nullable), subido_por (FK → usuarios),
+timestamps, soft deletes
 ```
 
-### Tabla: `nominas`
+### `formatos` (nuevo)
 ```sql
-id (BIGINT, PK, AUTO_INCREMENT)
-usuario_id (BIGINT, FK → usuarios)
-mes (INT, 1-12)
-año (INT)
-salario_diario (DECIMAL 10,2)
-dias_laborales (INT)
-dias_asistidos (INT)
-descuentos_faltas (DECIMAL 10,2)
-descuentos_retardos (DECIMAL 10,2)
-total_pago (DECIMAL 10,2, encrypted)
-estado (ENUM: calculada, pagada, procesada)
-fecha_pago (DATE, nullable)
-created_at (TIMESTAMP)
-updated_at (TIMESTAMP)
+id, nombre, tipo ENUM('checklist','formato_trabajo','trigger'),
+nombre_archivo, ruta_archivo, subido_por (FK → usuarios),
+timestamps, soft deletes
 ```
 
-### Tabla: `auditoria`
+### `nominas`
 ```sql
-id (BIGINT, PK, AUTO_INCREMENT)
-usuario_id (BIGINT, FK → usuarios)
-accion (VARCHAR 50, login/upload/download/cambio_nomina)
-tabla_afectada (VARCHAR 50)
-registro_id (BIGINT)
-detalles (JSON)
-ip_address (VARCHAR 45)
-created_at (TIMESTAMP)
+id, usuario_id (FK),
+periodo_inicio DATE, periodo_fin DATE, tipo_periodo VARCHAR(20) default 'quincenal',
+salario_diario DECIMAL(10,2), dias_laborales INT, dias_asistidos INT,
+descuentos_faltas DECIMAL(10,2) default 0,
+total_pago TEXT (encriptado AES-256-CBC),
+estado ENUM('calculada','pagada','procesada') default 'calculada',
+fecha_pago (DATE, nullable), timestamps, soft deletes
+UNIQUE(usuario_id, periodo_inicio)
+```
+> Originalmente era `mes`/`anio` (mensual) con columna `descuentos_retardos`. Ambas cosas cambiaron — ver Historial de cambios.
+
+### `auditoria`
+```sql
+id, usuario_id (FK), accion, tabla_afectada, registro_id,
+detalles (JSON), ip_address, created_at
 ```
 
 ---
 
-## 🔌 RUTAS LARAVEL (Routes)
-
-### routes/web.php - Página Pública
+## 🔌 RUTAS PRINCIPALES (ver `routes/web.php` para el listado completo)
 
 ```php
-// Página Web Pública
-Route::get('/', [HomepageController::class, 'index'])->name('home');
-Route::get('/servicios', [ServiciosController::class, 'index'])->name('servicios');
-Route::get('/portfolio', [PortfolioController::class, 'index'])->name('portfolio');
-Route::get('/blog', [BlogController::class, 'index'])->name('blog');
-Route::post('/contacto', [ContactoController::class, 'store'])->name('contacto.store');
-```
+// Público
+GET  /                              HomepageController
+GET  /servicios | /portfolio | /blog
+POST /contacto
 
-### routes/web.php - Sistema Interno (Autenticado)
+// Auth
+GET|POST /login
+POST     /logout
+GET|POST /registro                  → autorregistro, nace "pendiente"
 
-```php
-// Autenticación
-Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
-Route::post('/login', [AuthController::class, 'login'])->name('login.post');
-Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
-Route::post('/forgot-password', [AuthController::class, 'forgotPassword'])->name('password.email');
+// Autenticado (cualquier rol)
+GET  /mi-perfil
+GET  /dashboard  (+ /dashboard/kpis, /dashboard/graficos)
+GET|POST /asistencias/checkin
+POST /asistencias/checkout
+GET  /documentos (+ /documentos/data, upload, download, permisos)
+GET  /formatos   (+ /formatos/data, upload, {id}/ver, {id} delete)
+GET  /nominas/mi-nomina (+ data, pdf, /nominas/historico)
+GET  /usuarios/{id}/documentos-legales/data   (solo las propias)
 
-// Dashboard
-Route::middleware('auth')->group(function () {
-    Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
-    Route::get('/dashboard/kpis', [DashboardController::class, 'getKpis'])->name('dashboard.kpis');
-    Route::get('/dashboard/graficos', [DashboardController::class, 'getGraficos'])->name('dashboard.graficos');
+// Solo RH/admin
+GET  /asistencias (gestión) + justificar
+GET  /nominas (gestión) + calcular + {id}/pagar + reporte-contador(.csv)
+GET  /usuarios/pendientes (+ data) + {id}/aprobar + {id}/rechazar
+GET|POST /usuarios/{id}/documentos-legales (gestión)
 
-    // Asistencias
-    Route::post('/asistencias/checkin', [AsistenciaController::class, 'checkin'])->name('asistencias.checkin');
-    Route::post('/asistencias/checkout', [AsistenciaController::class, 'checkout'])->name('asistencias.checkout');
-    Route::get('/asistencias/mi-historial', [AsistenciaController::class, 'miHistorial'])->name('asistencias.historial');
-    Route::get('/asistencias/reportes', [AsistenciaController::class, 'reportes'])->name('asistencias.reportes');
-
-    // Documentos
-    Route::post('/documentos/upload', [DocumentoController::class, 'upload'])->name('documentos.upload');
-    Route::get('/documentos', [DocumentoController::class, 'lista'])->name('documentos.lista');
-    Route::get('/documentos/{id}/download', [DocumentoController::class, 'download'])->name('documentos.download');
-    Route::patch('/documentos/{id}/permisos', [DocumentoController::class, 'updatePermisos'])->name('documentos.permisos');
-
-    // Nóminas
-    Route::get('/nominas/mi-nomina', [NominaController::class, 'miNomina'])->name('nominas.minomina');
-    Route::get('/nominas/historico', [NominaController::class, 'historico'])->name('nominas.historico');
-    
-    // Solo RH/Admin
-    Route::middleware('role:RH,admin')->group(function () {
-        Route::get('/asistencias', [AsistenciaController::class, 'index'])->name('asistencias.index');
-        Route::post('/asistencias/{id}/justificar', [AsistenciaController::class, 'justificar'])->name('asistencias.justificar');
-        
-        Route::get('/nominas', [NominaController::class, 'index'])->name('nominas.index');
-        Route::post('/nominas/calcular', [NominaController::class, 'calcular'])->name('nominas.calcular');
-        Route::get('/nominas/reporte-contador', [NominaController::class, 'reporteContador'])->name('nominas.reporte');
-    });
-
-    // Solo Admin
-    Route::middleware('role:admin')->group(function () {
-        Route::resource('usuarios', UsuarioController::class);
-        Route::post('/usuarios/{id}/reset-password', [UsuarioController::class, 'resetPassword'])->name('usuarios.reset');
-    });
-});
+// Solo admin
+/usuarios (CRUD completo) + reset-password + {id}/activar
 ```
 
 ---
 
-## 🗂️ ESTRUCTURA DE CARPETAS (LARAVEL)
+## 🗂️ ESTRUCTURA DE CARPETAS (real)
 
 ```
-csm-operaciones/
-│
+CSM_SII/
 ├── app/
-│   ├── Http/
-│   │   ├── Controllers/
-│   │   │   ├── AuthController.php
-│   │   │   ├── DashboardController.php
-│   │   │   ├── AsistenciaController.php
-│   │   │   ├── DocumentoController.php
-│   │   │   ├── NominaController.php
-│   │   │   ├── HomepageController.php
-│   │   │   ├── UsuarioController.php
-│   │   │   └── ContactoController.php
-│   │   ├── Middleware/
-│   │   │   ├── Authenticate.php
-│   │   │   ├── CheckRole.php
-│   │   │   └── Encrypt.php
-│   │   └── Requests/
-│   │       ├── StoreNominaRequest.php
-│   │       ├── StoreDocumentoRequest.php
-│   │       └── StoreAsistenciaRequest.php
-│   │
+│   ├── Http/Controllers/
+│   │   ├── AuthController.php, RegistroController.php, PerfilController.php
+│   │   ├── DashboardController.php
+│   │   ├── AsistenciaController.php
+│   │   ├── DocumentoController.php, DocumentoLegalController.php
+│   │   ├── FormatoController.php
+│   │   ├── NominaController.php
+│   │   ├── UsuarioController.php
+│   │   └── HomepageController.php, ServiciosController.php, PortfolioController.php, BlogController.php, ContactoController.php
+│   ├── Http/Requests/
+│   │   ├── StoreAsistenciaRequest.php, StoreDocumentoRequest.php
+│   │   ├── StoreDocumentoLegalRequest.php, StoreFormatoRequest.php
 │   ├── Models/
-│   │   ├── Usuario.php
-│   │   ├── Asistencia.php
-│   │   ├── Documento.php
-│   │   ├── PermisoDocumento.php
-│   │   ├── Nomina.php
-│   │   └── Auditoria.php
-│   │
+│   │   ├── Usuario.php, Asistencia.php, Documento.php, DocumentoLegal.php
+│   │   ├── Formato.php, PermisoDocumento.php, Nomina.php, Auditoria.php
 │   ├── Services/
-│   │   ├── NominaService.php (lógica de cálculo)
-│   │   ├── DocumentoService.php (gestión archivos)
-│   │   ├── AuditService.php (registro de acciones)
-│   │   └── EmailService.php (notificaciones)
-│   │
+│   │   ├── NominaService.php, DocumentoService.php, AuditService.php, EmailService.php
 │   ├── Jobs/
-│   │   └── CalcularNominasJob.php (tarea nocturnna automática)
-│   │
+│   │   └── CalcularNominasJob.php (respaldo nocturno, no mecanismo principal)
 │   └── Traits/
-│       ├── Encryptable.php (encriptar/desencriptar)
-│       └── Auditable.php (registrar cambios)
+│       ├── Encryptable.php, Auditable.php
 │
 ├── resources/
 │   ├── views/
-│   │   ├── layouts/
-│   │   │   ├── app.blade.php (layout principal)
-│   │   │   └── guest.blade.php (login)
-│   │   │
-│   │   ├── auth/
-│   │   │   └── login.blade.php
-│   │   │
-│   │   ├── dashboard/
-│   │   │   ├── index.blade.php (con Vue component)
-│   │   │   ├── components/
-│   │   │   │   ├── kpis.blade.php
-│   │   │   │   ├── graficos.blade.php
-│   │   │   │   └── rescatistas-mapa.blade.php
-│   │   │
-│   │   ├── asistencias/
-│   │   │   ├── checkin.blade.php (Vue component)
-│   │   │   ├── historial.blade.php
-│   │   │   └── reportes.blade.php (RH)
-│   │   │
-│   │   ├── documentos/
-│   │   │   ├── index.blade.php (árbol de carpetas)
-│   │   │   ├── upload.blade.php
-│   │   │   └── permisos.blade.php
-│   │   │
-│   │   ├── nominas/
-│   │   │   ├── mi-nomina.blade.php (técnico)
-│   │   │   ├── index.blade.php (RH)
-│   │   │   └── reporte-contador.blade.php
-│   │   │
-│   │   ├── web/
-│   │   │   ├── homepage.blade.php
-│   │   │   ├── servicios.blade.php
-│   │   │   ├── portfolio.blade.php
-│   │   │   ├── contacto.blade.php
-│   │   │   └── blog.blade.php
-│   │   │
-│   │   └── usuarios/ (solo admin)
-│   │       ├── index.blade.php
-│   │       └── form.blade.php
-│   │
+│   │   ├── layouts/app.blade.php (header/nav), layouts/guest.blade.php
+│   │   ├── auth/login.blade.php, auth/registro.blade.php
+│   │   ├── dashboard/index.blade.php
+│   │   ├── asistencias/checkin.blade.php, asistencias/index.blade.php
+│   │   ├── documentos/index.blade.php
+│   │   ├── formatos/index.blade.php
+│   │   ├── nominas/mi-nomina.blade.php, nominas/index.blade.php, nominas/comprobante-pdf.blade.php
+│   │   ├── usuarios/index.blade.php, usuarios/form.blade.php, usuarios/pendientes.blade.php, usuarios/documentos-legales.blade.php
+│   │   ├── perfil/mostrar.blade.php
+│   │   └── web/ (homepage, servicios, portfolio, blog)
 │   ├── js/
-│   │   ├── app.js (bootstrap Vue)
-│   │   ├── components/
-│   │   │   ├── Checkin.vue
-│   │   │   ├── Dashboard.vue
-│   │   │   ├── MiNomina.vue
-│   │   │   ├── DocumentosArbol.vue
-│   │   │   ├── Graficos.vue
-│   │   │   └── KPIs.vue
-│   │   │
-│   │   ├── stores/
-│   │   │   ├── authStore.js
-│   │   │   ├── asistenciasStore.js
-│   │   │   └── nominasStore.js
-│   │   │
-│   │   └── api.js (configuración axios)
-│   │
-│   └── css/
-│       └── app.css (Tailwind)
+│   │   ├── app.js (monta cada componente por selector, SIN Vue Router)
+│   │   └── components/
+│   │       ├── Checkin.vue, Dashboard.vue, MiNomina.vue
+│   │       ├── AsistenciasAdmin.vue, NominasAdmin.vue
+│   │       ├── DocumentosProyecto.vue, DocumentosLegalesAdmin.vue
+│   │       ├── Formatos.vue, UsuariosAdmin.vue, UsuariosPendientes.vue
+│   └── css/app.css (Tailwind + clases semánticas propias)
 │
 ├── database/
-│   ├── migrations/
-│   │   ├── 2024_01_01_create_usuarios_table.php
-│   │   ├── 2024_01_02_create_asistencias_table.php
-│   │   ├── 2024_01_03_create_documentos_table.php
-│   │   ├── 2024_01_04_create_permisos_documentos_table.php
-│   │   ├── 2024_01_05_create_nominas_table.php
-│   │   └── 2024_01_06_create_auditoria_table.php
-│   │
-│   ├── seeders/
-│   │   ├── UsuarioSeeder.php (crear 14 técnicos)
-│   │   └── DatabaseSeeder.php
-│   │
-│   └── factories/
-│       └── UsuarioFactory.php
+│   ├── migrations/ (16 migraciones — ver schema arriba; varias son correctivas sobre migraciones ya aplicadas, nunca se editan las originales)
+│   ├── seeders/UsuarioSeeder.php
+│   └── factories/UsuarioFactory.php
 │
-├── routes/
-│   ├── web.php (ver abajo)
-│   └── api.php (si necesitas API externa)
-│
-├── config/
-│   ├── app.php
-│   ├── database.php
-│   ├── mail.php
-│   └── custom.php (salarios, configuración proyecto)
-│
-├── storage/
-│   ├── app/
-│   │   └── documentos/ (archivos subidos)
-│   └── logs/
-│       └── laravel.log
-│
-├── tests/
-│   ├── Feature/
-│   │   ├── NominaTest.php (test cálculo automático)
-│   │   ├── AsistenciaTest.php
-│   │   └── DocumentoTest.php
-│   │
-│   └── Unit/
-│       └── NominaServiceTest.php
-│
-├── .env.example
-├── composer.json
-├── package.json (para Vue + Tailwind)
-├── tailwind.config.js
-├── vite.config.js
-└── README.md
+├── routes/web.php, routes/console.php (Schedule::job(CalcularNominasJob)->dailyAt('23:00'))
+├── config/custom.php (hora_limite de asistencia)
+├── storage/app/ (documentos, documentos_legales, formatos, asistencias — todo privado, nunca en public/)
+└── tests/Feature/ + tests/Unit/ (80 tests a la fecha, PHPUnit vía `php artisan test`)
 ```
 
 ---
 
-## 🚀 INSTRUCCIONES DE SETUP
+## 🚀 DESPLIEGUE EN HOSTINGER (plan compartido — sin SSH)
 
-### Instalación Laravel
+Esta sección documenta restricciones reales del hosting que obligaron a desviarse del despliegue estándar de Laravel. Es la parte más importante para cualquiera que retome el mantenimiento del sitio.
 
-```bash
-# Crear proyecto
-composer create-project laravel/laravel csm-operaciones
+### Restricciones del plan contratado
+- **Sin SSH** — todo se hace vía hPanel (File Manager, Git, Cron Jobs, phpMyAdmin) o por Git push.
+- **Sin Node/npm en el servidor** — Vite debe compilarse **localmente** y los archivos de `public/build/` deben **commitearse a git** (por eso NO está en `.gitignore`).
+- **`proc_open` deshabilitado** — cualquier script de Composer que use `@php artisan ...` como subproceso falla. `composer.json` solo tiene el callback en-proceso `Illuminate\Foundation\ComposerScripts::postAutoloadDump`; se commitea un `bootstrap/cache/packages.php` pre-generado como respaldo.
+- **Sin control del docroot** — el plan Single no permite apuntar el dominio a `public_html/csm-app/public` (la ubicación estándar de Laravel). Solución ("Plan B"):
+  - El contenido de `public/` vive duplicado como la raíz real servida en `public_html/`.
+  - `public_html/index.php` es una copia de `public/index.php` con sus 3 rutas relativas reescritas para apuntar a `public_html/csm-app/...`.
+  - `public_html/.htaccess` tiene las reglas estándar de reescritura de Laravel.
+  - `public_html/csm-app/.htaccess` (nuevo, no existe en un Laravel normal) bloquea el acceso directo a esa carpeta con `Require all denied`.
+- **Sin worker de colas** — `CalcularNominasJob implements ShouldQueue` se encola pero nada la procesa (no hay `queue:work` corriendo). Por eso el cálculo de nómina se mueve a **recálculo síncrono en vivo** (ver módulo de Nómina) en vez de depender del job. Si se necesita que el job nocturno realmente se dispare sin depender de `sync`, considerar cambiar `QUEUE_CONNECTION=sync` en el `.env` de producción.
 
-# Navegar al proyecto
-cd csm-operaciones
+### ⚠️ Paso manual recurrente (la causa más común de "se ve en blanco" en producción)
 
-# Instalar dependencias JS
-npm install
+Cada vez que se cambia algo en `resources/js` o `resources/css`:
 
-# Instalar Vue y Tailwind
-npm install vue@next
-npm install -D tailwindcss postcss autoprefixer
-npx tailwindcss init -p
+1. `npm run build` localmente.
+2. Commitear `public/build/` (los nombres de archivo cambian por el hash de contenido).
+3. Push + "Redistribuir" en el panel de Git de Hostinger — esto actualiza `public_html/csm-app/public/build/`.
+4. **Copiar manualmente** `public_html/csm-app/public/build/*` sobre `public_html/build/` — el redistribuir **no** hace esto automáticamente, porque `public_html/build/` (lo que realmente sirve el dominio) es una copia aparte del "Plan B", no un symlink.
 
-# Publicar config de auth
-php artisan vendor:publish --provider="Illuminate\Auth\AuthServiceProvider"
+Olvidar el paso 4 ya causó una caída real de producción (vistas en blanco, `app-*.js` 404) — **siempre recordarlo** después de cualquier redeploy con cambios de frontend.
 
-# Crear archivo .env
-cp .env.example .env
-php artisan key:generate
-```
+### Migraciones en producción (sin SSH)
+No hay forma de correr `php artisan migrate` directamente. Se usa un **cron job temporal**:
+1. hPanel → Avanzado → Cron Jobs → crear uno con el comando (ruta relativa al home, sin repetir el prefijo que ya pone Hostinger):
+   `domains/csm-operaciones-sii.devsistems.com/public_html/csm-app/artisan migrate --force`
+2. Esperar a que corra una vez (o "Ejecutar ahora" si el panel lo ofrece).
+3. Verificar en phpMyAdmin que el cambio se aplicó.
+4. **Borrar el cron job** — es de un solo uso, no debe quedar corriendo periódicamente.
 
-### Configurar .env
+### Scheduler permanente
+Cron fijo, cada ~2 minutos:
+`domains/csm-operaciones-sii.devsistems.com/public_html/csm-app/artisan schedule:run`
+Esto es lo que dispara `CalcularNominasJob` a las 23:00 (`routes/console.php`) y cualquier otra tarea programada futura.
 
-```
-APP_NAME="CSM Operaciones"
-APP_ENV=production
-APP_URL=https://csm-operaciones.com.mx
-
-DB_CONNECTION=mysql
-DB_HOST=localhost
-DB_PORT=3306
-DB_DATABASE=csm_operaciones
-DB_USERNAME=csm_user
-DB_PASSWORD=tu_password_seguro
-
-MAIL_DRIVER=smtp
-MAIL_HOST=smtp.mailtrap.io (o SendGrid)
-MAIL_PORT=465
-MAIL_USERNAME=tu_usuario
-MAIL_PASSWORD=tu_password
-
-APP_ENCRYPTION=AES-256-CBC
-APP_CIPHER=AES-256-CBC
-```
-
-### Crear Base de Datos
-
-```bash
-# Ejecutar migraciones
-php artisan migrate
-
-# Ejecutar seeders (crear usuarios de prueba)
-php artisan db:seed
-
-# O específico:
-php artisan migrate --seed
-```
-
-### Desarrollo Local
-
-```bash
-# Terminal 1: Laravel dev server
-php artisan serve
-
-# Terminal 2: Compilar Vue + Tailwind
-npm run dev
-
-# Terminal 3: Laravel Scheduler (cada minuto)
-php artisan schedule:work
-```
-
-### Build para Producción
-
-```bash
-# Compilar assets
-npm run build
-
-# Optimizar Laravel
-php artisan config:cache
-php artisan route:cache
-php artisan view:cache
-
-# Deploy a Hostinger (vía Git o FTP)
-```
+### Checklist de un deploy con cambios de backend + frontend
+1. `php artisan test` — todo verde.
+2. `npm run build` (si hubo cambios en JS/CSS).
+3. Commit (el usuario hace `git commit`/`git push`, no el asistente).
+4. "Redistribuir" en Hostinger.
+5. Si hay migraciones nuevas: cron temporal de `migrate --force`, verificar, borrar el cron.
+6. Si hubo cambios de frontend: re-copiar `public_html/csm-app/public/build/*` → `public_html/build/`.
 
 ---
 
-## 🔒 REQUERIMIENTOS DE SEGURIDAD
+## 🔒 SEGURIDAD
 
-### Autenticación
-- Laravel Auth (sesiones + contraseñas)
-- Contraseñas con bcrypt (automático en Laravel)
-- Middleware `auth` en rutas protegidas
-- Middleware `role` para autorización
-
-### Autorización
-- Permisos por rol: técnico, supervisor, RH, admin, contador
-- Gate y Policy (Laravel)
-- Técnico solo ve su nómina/asistencia
-- RH ve todo del personal
-- Contador solo descarga reportes
-
-### Encriptación
-- Contraseñas: bcrypt (Laravel Auth)
-- Nóminas en BD: AES-256 (Trait Encryptable)
-- HTTPS obligatorio en producción
-- Config APP_CIPHER=AES-256-CBC
-
-### CSRF Protection
-- Laravel incluye _token automáticamente
-- Verificación en todos los formularios
-
-### Auditoría
-- Trait Auditable registra: usuario, acción, cambios
-- Tabla auditoria guarda: login, upload, download, cambio nómina
-- IP address en cada acción
-- Timestamp automático
-
-### Cumplimiento Legal
-- LFPDPPP: Datos de empleados protegidos
-- Retención 7 años: Nóminas guardadas (usar soft deletes)
-- Consentimiento: Aceptar términos en login
+- **Autenticación:** sesiones de Laravel + bcrypt. "Recordarme" con `remember_token` (cookie persistente) + email recordado en cookie separada para prellenar el login.
+- **Autorización:** roles `rescatista, supervisor, RH, admin, contador` vía middleware `role:` y helpers del modelo (`esRH()` incluye RH+admin, `esAdmin()` solo admin).
+- **Encriptación:** AES-256-CBC solo en `nominas.total_pago` (Trait `Encryptable`, con `attributesToArray()` sobreescrito para no filtrar el texto cifrado por error).
+- **CSRF:** estándar de Laravel en todos los formularios/axios.
+- **Auditoría:** Trait `Auditable` registra automáticamente create/update/delete relevantes en la tabla `auditoria` (usuario, acción, tabla, registro, IP).
+- **Retención legal (LFPDPPP):** `nominas`, `documentos`, `documentos_legales` y `formatos` usan `softDeletes` — nunca se borran físicamente.
+- **`.gitignore` de `storage/`** debe preservar los placeholders de Laravel mientras excluye contenido real (documentos subidos, logs con datos reales) — ya se corrigió una vez un `.gitignore` incompleto que habría expuesto esto en git.
+- **No implementado:** 2FA, Laravel Passport/OAuth, SMTP real (actualmente `MAIL_MAILER=log`).
 
 ---
 
-## 📝 COMPONENTES VUE PRINCIPALES
+## 🧪 TESTING
 
-### 1. Checkin.vue
-```vue
-<template>
-  <div class="container mx-auto p-4">
-    <h1 class="text-2xl font-bold mb-6">Registrar Asistencia</h1>
-    
-    <div class="mb-4">
-      <label>Proyecto:</label>
-      <select v-model="proyecto" class="w-full p-2 border">
-        <option>Seleccionar proyecto</option>
-        <option v-for="p in proyectos" :key="p.id" :value="p.id">{{ p.nombre }}</option>
-      </select>
-    </div>
+- PHPUnit vía `php artisan test` — **80 tests** a la fecha de este documento, todos en verde.
+- `RefreshDatabase` + SQLite en memoria para tests (producción usa MySQL — ver nota abajo sobre `whereDate()`).
+- Cobertura por módulo: `tests/Feature/` (AsistenciaTest, NominaTest, UsuarioTest, RegistroTest, RecordarmeTest, FormatoTest, DocumentoTest, DocumentoLegalTest) + `tests/Unit/NominaServiceTest.php`.
 
-    <div class="text-center mb-4">
-      <button @click="abrirCamara" class="bg-blue-500 text-white p-3 rounded">
-        📷 Escanear QR
-      </button>
-      <video ref="qrVideo" style="width: 300px; height: 300px;"></video>
-    </div>
-
-    <div class="mb-4">
-      <label>O código manual:</label>
-      <input v-model="codigoManual" type="text" class="w-full p-2 border" placeholder="Ingresar código">
-    </div>
-
-    <button @click="confirmarEntrada" class="bg-green-500 text-white w-full p-3 rounded font-bold">
-      CONFIRMAR ENTRADA
-    </button>
-
-    <div v-if="ultimaAsistencia" class="mt-4 bg-gray-100 p-4 rounded">
-      ✓ Última entrada: {{ ultimaAsistencia.horaEntrada }}
-      ✓ Última salida: {{ ultimaAsistencia.horaSalida }}
-    </div>
-  </div>
-</template>
-
-<script>
-import { ref } from 'vue'
-import axios from 'axios'
-
-export default {
-  setup() {
-    const proyecto = ref('')
-    const codigoManual = ref('')
-    const ultimaAsistencia = ref(null)
-    const qrVideo = ref(null)
-    const proyectos = ref([])
-
-    const confirmarEntrada = async () => {
-      try {
-        const response = await axios.post('/asistencias/checkin', {
-          proyecto: proyecto.value,
-          codigo: codigoManual.value
-        })
-        alert('Check-in registrado: ' + response.data.horaEntrada)
-      } catch (error) {
-        alert('Error: ' + error.response.data.message)
-      }
-    }
-
-    return {
-      proyecto,
-      codigoManual,
-      ultimaAsistencia,
-      qrVideo,
-      proyectos,
-      confirmarEntrada,
-      abrirCamara: () => { /* QR.js logic */ }
-    }
-  }
-}
-</script>
-```
+**Gotcha recurrente a tener presente:** comparar una columna `date`-cast de Eloquent con `where('col', $valor)` falla en SQLite (donde el valor interno queda como datetime completo) pero "funciona por accidente" en MySQL (columna `DATE` real). Usar siempre `whereDate()` para estas comparaciones — ya causó bugs reales en `Asistencia.fecha` y `Nomina.periodo_inicio`.
 
 ---
 
-## 🧪 TESTING EN LARAVEL
+## ⚡ LECCIONES APRENDIDAS
 
-### Test de Nómina (tests/Feature/NominaTest.php)
-
-```php
-<?php
-namespace Tests\Feature;
-
-use Tests\TestCase;
-use App\Models\Usuario;
-use App\Models\Asistencia;
-
-class NominaTest extends TestCase
-{
-    public function test_calcula_nomina_correctamente()
-    {
-        // Setup: Crear técnico con 20 días asistidos
-        $usuario = Usuario::factory()->create(['salario_diario' => 300]);
-        
-        for ($i = 1; $i <= 20; $i++) {
-            Asistencia::create([
-                'usuario_id' => $usuario->id,
-                'fecha' => now()->subDays(22-$i),
-                'hora_entrada' => '09:00:00',
-                'hora_salida' => '17:00:00',
-                'estado' => 'presente'
-            ]);
-        }
-
-        // Act: Calcular nómina
-        $response = $this->post('/nominas/calcular');
-
-        // Assert: Verificar fórmula
-        // 20 días × $300 = $6,000
-        $this->assertEquals(6000, $usuario->nomina->total_pago);
-    }
-
-    public function test_descuentos_por_faltas()
-    {
-        $usuario = Usuario::factory()->create(['salario_diario' => 300]);
-        
-        // 20 presentes
-        for ($i = 1; $i <= 20; $i++) {
-            Asistencia::create([...]);
-        }
-        
-        // 2 ausentes
-        Asistencia::create(['usuario_id' => $usuario->id, 'estado' => 'ausente']);
-        Asistencia::create(['usuario_id' => $usuario->id, 'estado' => 'ausente']);
-
-        $this->post('/nominas/calcular');
-
-        // 20 × $300 - (2 × $300) = $5,400
-        $this->assertEquals(5400, $usuario->nomina->total_pago);
-    }
-}
-```
-
----
-
-## 📅 CRONOGRAMA SPRINT-BASED (16 semanas)
-
-### Sprint 1-2 (Semanas 1-2): Setup + DB
-- [ ] Crear proyecto Laravel
-- [ ] Configurar base de datos en Hostinger
-- [ ] Crear migraciones
-- [ ] Setup Vue.js + Tailwind CSS
-- [ ] Autenticación básica
-
-### Sprint 3-4 (Semanas 3-4): Página Web
-- [ ] Homepage + servicios
-- [ ] Portfolio
-- [ ] Formulario contacto
-- [ ] Responsive
-- [ ] Deploy a Hostinger
-
-### Sprint 5-6 (Semanas 5-6): Asistencias
-- [ ] Controller de asistencias
-- [ ] Componente Vue Checkin
-- [ ] Tabla de asistencias (RH)
-- [ ] Reportes
-
-### Sprint 7-8 (Semanas 7-8): Nómina ⭐
-- [ ] Model y Service de nómina
-- [ ] Job automático (Laravel Scheduler)
-- [ ] Componente Vue MiNomina
-- [ ] Reportes para contador
-- [ ] Email automático
-
-### Sprint 9-10 (Semanas 9-10): Documentos
-- [ ] Model y Controller documentos
-- [ ] Upload/Download
-- [ ] Árbol de carpetas (Vue)
-- [ ] Permisos
-
-### Sprint 11-12 (Semanas 11-12): Dashboard + Integración
-- [ ] Dashboard Controller
-- [ ] Componentes Vue Dashboard
-- [ ] Gráficos Chart.js
-- [ ] Testing integración
-
-### Sprint 13 (Semana 13): QA
-- [ ] Tests unitarios
-- [ ] Tests Feature
-- [ ] Tests seguridad
-- [ ] Bug fixes
-
-### Sprint 14-16 (Semanas 14-16): Capacitación + Go-Live
-- [ ] Capacitar personal CSM
-- [ ] Migración de datos
-- [ ] Monitoreo
-- [ ] Ajustes finales
-
----
-
-## 🔗 INSTRUCCIONES PARA CLAUDE CODE
-
-Cuando uses Claude Code, proporciona este contexto:
-
-```
-Proyecto: CSM Operaciones
-Stack: Laravel 11 + Vue.js + Blade + MySQL
-
-TAREAS ACTUALES:
-1. Crear Controller AsistenciaController
-   - Método checkin: POST /asistencias/checkin
-   - Recibe: proyecto, codigo_qr, foto (base64), ubicacion
-   - Valida usuario, crea registro
-   - Retorna JSON con hora_entrada
-
-2. Crear Componente Vue: Checkin.vue
-   - Selector de proyecto
-   - Botón para cámara QR (jsQR library)
-   - Input manual de código
-   - Muestra última entrada/salida
-
-3. Crear Test NominaTest.php
-   - Test: 20 días × $300 = $6,000
-   - Test: con 2 faltas = $5,400
-   - Test: con 2 retardos = $5,700
-
-ESPECIFICACIONES:
-- Contraseñas bcrypt (automático)
-- Nóminas encriptadas AES-256
-- Auditar cada acción (Trait Auditable)
-- Permisos por rol (Gate/Policy)
-
-Base de datos: Ver schema anterior
-Rutas: Ver rutas Laravel anterior
-```
-
----
-
-## ⚡ TIPS IMPORTANTES
-
-1. **Nómina es crítico:** Cualquier error afecta sueldos. Test exhaustivamente.
-2. **Laravel Scheduler:** Cálculo automático cada noche a las 23:00 (crontab)
-3. **Encriptación AES-256:** Crear Trait Encryptable que automáticamente encripta/desencripta en modelos
-4. **Vue con Blade:** Usar `@vite` en Blade templates para cargar componentes Vue
-5. **Hostinger tiene limitaciones:** No tiene SSH completo. Usar Git para deploy y cPanel para configuración
-6. **Archivos:** Guardar en `storage/app/documentos/` (privado), no public/
-7. **Logs:** Ver en `storage/logs/laravel.log` para debugging
+1. **El paso manual de copiar `public/build` a `public_html/build`** es el riesgo operativo más alto del proyecto — ya causó una caída real. Automatizarlo no es posible sin SSH; solo queda disciplina de checklist.
+2. **Nunca editar una migración ya aplicada** — no tiene efecto retroactivo en una base de datos real. Siempre crear una migración nueva, incluso para corregir un error de la anterior (ver `2025_01_04`, `2025_01_07`, `2025_01_08`, `2025_01_09`).
+3. **`whereDate()` en vez de `where()` para columnas de fecha** — SQLite (tests) no reproduce el bug que sí aparece en MySQL (producción).
+4. **Los casts `date` de Eloquent serializan como datetime ISO completo en JSON por defecto** (`2026-09-01T00:00:00.000000Z`), no como fecha simple — usar `'date:Y-m-d'` si el frontend espera una fecha simple.
+5. **SoftDeletes + índice único puede bloquear un re-insert** — el índice único de MySQL no distingue filas borradas-suavemente. Cualquier lógica de "buscar o crear" sobre un modelo con `SoftDeletes` debe considerar `withTrashed()` y restaurar si hace falta.
+6. **Condiciones de carrera en "buscar o crear"** (p. ej. dos peticiones casi simultáneas) deben manejarse capturando `UniqueConstraintViolationException` y reintentando como actualización, no asumiendo que el `where()->first()` previo es suficiente.
+7. **`decimal(N, 8)` para longitud GPS necesita al menos 3 dígitos enteros** (`DECIMAL(11,8)`), porque la longitud llega a ±180; latitud sí cabe en 2 dígitos (`DECIMAL(10,8)`).
+8. **Composer con `proc_open` deshabilitado** rompe cualquier script `@php artisan ...` en `composer.json` — usar solo callbacks en-proceso y commitear un `bootstrap/cache/packages.php` de respaldo.
+9. **Un límite de paginación bajo sin UI de "siguiente página"** oculta usuarios/registros sin avisar — ya pasó con `Usuario::paginate(20)` en el listado de admin.
+10. **Git: el asistente de IA solo hace `git add`**, nunca `commit`/`push` — el usuario siempre ejecuta el commit/push él mismo.
 
 ---
 
 ## 📞 CONTACTOS
 
 - **Director CSM:** Juan Héctor Morín Torres
-- **Desarrollador:** José Ricardo Becerra (DevSistems)
-- **Hosting:** Hostinger cPanel
-- **Dominio:** csm-operaciones.com.mx
+- **Desarrollador:** José Ricardo Becerra Covarrubias (DevSistems)
+- **Hosting:** Hostinger (plan Single, hPanel)
+- **Dominio de producción:** `csm-operaciones-sii.devsistems.com`
 
----
-
-**¡Listo para empezar con Laravel! 🚀**
+> Las credenciales de prueba (seeder) y cualquier contraseña real **no se documentan en este archivo** porque vive en el repositorio de git. Ver `database/seeders/UsuarioSeeder.php` para las cuentas de prueba usadas en desarrollo local.
 
 
-Admin:
-
-
-Correo:      director@csm-operaciones.com.mx
-Contraseña:  password
-RH:
-
-
-Correo:      rh@csm-operaciones.com.mx
-Contraseña:  password
+Admin: director@csm-operaciones.com.mx / password
+RH: rh@csm-operaciones.com.mx / password

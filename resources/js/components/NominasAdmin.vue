@@ -7,14 +7,13 @@
       </div>
 
       <div class="flex items-center gap-2">
-        <select v-model.number="mes" class="input w-auto">
-          <option v-for="m in 12" :key="m" :value="m">{{ nombreMes(m) }}</option>
-        </select>
-        <select v-model.number="anio" class="input w-auto">
-          <option v-for="a in anios" :key="a" :value="a">{{ a }}</option>
-        </select>
+        <input v-model="fecha" type="date" class="input w-auto" />
       </div>
     </div>
+
+    <p v-if="periodoInicio && periodoFin" class="text-sm text-slate-500 mb-4">
+      Quincena: {{ periodoInicio }} al {{ periodoFin }}
+    </p>
 
     <div class="flex flex-col sm:flex-row gap-2 mb-6">
       <button
@@ -25,7 +24,7 @@
         {{ calculando ? 'Calculando…' : 'Calcular nómina del periodo' }}
       </button>
       <a
-        :href="`/nominas/reporte-contador/csv?mes=${mes}&anio=${anio}`"
+        :href="`/nominas/reporte-contador/csv?fecha=${fecha}`"
         class="btn-secondary"
       >
         Exportar a contador (CSV)
@@ -41,9 +40,10 @@
             <th>Empleado</th>
             <th>Departamento</th>
             <th class="text-right">Días asistidos</th>
-            <th class="text-right">Descuentos</th>
+            <th class="text-right">Descuento faltas</th>
             <th class="text-right">Total</th>
             <th>Estado</th>
+            <th></th>
           </tr>
         </thead>
         <tbody>
@@ -51,12 +51,17 @@
             <td class="font-medium text-slate-900">{{ n.usuario?.nombre }}</td>
             <td>{{ n.usuario?.departamento }}</td>
             <td class="text-right">{{ n.dias_asistidos }}</td>
-            <td class="text-right">${{ formatoMoneda(Number(n.descuentos_faltas) + Number(n.descuentos_retardos)) }}</td>
+            <td class="text-right">${{ formatoMoneda(n.descuentos_faltas) }}</td>
             <td class="text-right font-bold">${{ formatoMoneda(n.total_pago) }}</td>
-            <td><span class="badge-gray">{{ n.estado }}</span></td>
+            <td><span :class="n.estado === 'pagada' ? 'badge-green' : 'badge-gray'">{{ n.estado }}</span></td>
+            <td class="text-right">
+              <button v-if="n.estado !== 'pagada'" @click="marcarPagada(n)" class="btn-link">
+                Marcar como pagada
+              </button>
+            </td>
           </tr>
           <tr v-if="!cargando && nominas.length === 0">
-            <td colspan="6" class="text-center text-slate-400 py-6">
+            <td colspan="7" class="text-center text-slate-400 py-6">
               Sin nóminas calculadas para este periodo todavía.
             </td>
           </tr>
@@ -73,25 +78,23 @@ import axios from 'axios'
 export default {
   name: 'NominasAdmin',
   setup() {
-    const hoy = new Date()
-    const mes = ref(hoy.getMonth() + 1)
-    const anio = ref(hoy.getFullYear())
-    const anios = [anio.value, anio.value - 1, anio.value - 2]
+    const fecha = ref(new Date().toISOString().slice(0, 10))
+    const periodoInicio = ref(null)
+    const periodoFin = ref(null)
     const nominas = ref([])
     const cargando = ref(false)
     const calculando = ref(false)
     const mensaje = ref('')
-
-    const nombreMes = (m) =>
-      ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'][m - 1]
 
     const formatoMoneda = (valor) => Number(valor ?? 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })
 
     const cargarNominas = async () => {
       cargando.value = true
       try {
-        const { data } = await axios.get('/nominas/data', { params: { mes: mes.value, anio: anio.value } })
+        const { data } = await axios.get('/nominas/data', { params: { fecha: fecha.value } })
         nominas.value = data.nominas
+        periodoInicio.value = data.periodo_inicio
+        periodoFin.value = data.periodo_fin
       } finally {
         cargando.value = false
       }
@@ -101,7 +104,7 @@ export default {
       calculando.value = true
       mensaje.value = ''
       try {
-        const { data } = await axios.post('/nominas/calcular', { mes: mes.value, anio: anio.value })
+        const { data } = await axios.post('/nominas/calcular', { fecha: fecha.value })
         mensaje.value = data.message
         await cargarNominas()
       } finally {
@@ -109,10 +112,18 @@ export default {
       }
     }
 
-    watch([mes, anio], cargarNominas)
+    const marcarPagada = async (n) => {
+      if (!confirm(`¿Marcar la nómina de ${n.usuario?.nombre} como pagada?`)) return
+
+      const { data } = await axios.post(`/nominas/${n.id}/pagar`)
+      mensaje.value = data.message
+      n.estado = 'pagada'
+    }
+
+    watch(fecha, cargarNominas)
     onMounted(cargarNominas)
 
-    return { mes, anio, anios, nominas, cargando, calculando, mensaje, nombreMes, formatoMoneda, calcular }
+    return { fecha, periodoInicio, periodoFin, nominas, cargando, calculando, mensaje, formatoMoneda, calcular, marcarPagada }
   },
 }
 </script>

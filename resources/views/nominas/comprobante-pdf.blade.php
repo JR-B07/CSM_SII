@@ -16,7 +16,7 @@
 </head>
 <body>
     <h1>CSM Operaciones</h1>
-    <p class="subtitulo">Comprobante de nómina — {{ $nomina->mes }}/{{ $nomina->anio }}</p>
+    <p class="subtitulo">Comprobante de nómina — {{ $nomina->periodo_inicio->format('d/m/Y') }} al {{ $nomina->periodo_fin->format('d/m/Y') }}</p>
 
     <table>
         <tr><th>Empleado</th><td>{{ $nomina->usuario->nombre }}</td></tr>
@@ -25,7 +25,6 @@
         <tr><th>Días laborales del periodo</th><td>{{ $nomina->dias_laborales }}</td></tr>
         <tr><th>Días asistidos</th><td>{{ $nomina->dias_asistidos }}</td></tr>
         <tr><th>Descuento por faltas</th><td class="descuento">- ${{ number_format((float) $nomina->descuentos_faltas, 2) }}</td></tr>
-        <tr><th>Descuento por retardos</th><td class="descuento">- ${{ number_format((float) $nomina->descuentos_retardos, 2) }}</td></tr>
         <tr class="total-row"><td>Total a pagar</td><td>${{ number_format((float) $nomina->total_pago, 2) }}</td></tr>
     </table>
 

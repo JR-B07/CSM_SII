@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreAsistenciaRequest;
 use App\Models\Asistencia;
+use App\Models\Usuario;
+use App\Services\NominaService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -12,6 +14,22 @@ use Illuminate\View\View;
 
 class AsistenciaController extends Controller
 {
+    public function __construct(protected NominaService $nominaService)
+    {
+    }
+
+    /**
+     * Recalcula en vivo la nómina de la quincena en curso al registrar
+     * asistencia, para que "Mi Nómina" refleje el día sin esperar al job
+     * nocturno (que además depende de un worker de colas que no existe en
+     * este hosting).
+     */
+    protected function recalcularNominaDelDia(Usuario $usuario, Carbon $fecha): void
+    {
+        [$inicio, $fin] = $this->nominaService->periodoQuincenalPara($fecha);
+        $this->nominaService->calcularNomina($usuario, $inicio, $fin);
+    }
+
     public function checkin(StoreAsistenciaRequest $request): JsonResponse
     {
         $usuario = $request->user();
@@ -51,6 +69,8 @@ class AsistenciaController extends Controller
 
         $asistencia->save();
 
+        $this->recalcularNominaDelDia($usuario, $ahora);
+
         return response()->json([
             'message' => 'Check-in registrado correctamente.',
             'horaEntrada' => $asistencia->hora_entrada,
@@ -78,6 +98,8 @@ class AsistenciaController extends Controller
         $horaSalida = $request->input('hora_dispositivo') ?? Carbon::now()->toTimeString();
 
         $asistencia->update(['hora_salida' => $horaSalida]);
+
+        $this->recalcularNominaDelDia($usuario, Carbon::now());
 
         return response()->json([
             'message' => 'Check-out registrado correctamente.',
@@ -141,11 +163,13 @@ class AsistenciaController extends Controller
     {
         $request->validate(['justificante' => ['required', 'string']]);
 
-        $asistencia = Asistencia::findOrFail($id);
+        $asistencia = Asistencia::with('usuario')->findOrFail($id);
         $asistencia->update([
             'estado' => 'justificado',
             'justificante' => $request->input('justificante'),
         ]);
+
+        $this->recalcularNominaDelDia($asistencia->usuario, Carbon::parse($asistencia->fecha));
 
         return response()->json(['message' => 'Falta justificada correctamente.', 'asistencia' => $asistencia]);
     }

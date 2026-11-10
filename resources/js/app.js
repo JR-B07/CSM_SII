@@ -10,6 +10,7 @@ import DocumentosLegalesAdmin from './components/DocumentosLegalesAdmin.vue';
 import AsistenciasAdmin from './components/AsistenciasAdmin.vue';
 import DocumentosProyecto from './components/DocumentosProyecto.vue';
 import Formatos from './components/Formatos.vue';
+import DocumentosBosOfs from './components/DocumentosBosOfs.vue';
 
 const componentes = {
     '#app-checkin': Checkin,
@@ -20,6 +21,7 @@ const componentes = {
     '#app-asistencias-admin': AsistenciasAdmin,
     '#app-documentos-proyecto': DocumentosProyecto,
     '#app-formatos': Formatos,
+    '#app-documentos-bos-ofs': DocumentosBosOfs,
 };
 
 Object.entries(componentes).forEach(([selector, componente]) => {

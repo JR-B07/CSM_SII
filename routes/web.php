@@ -5,6 +5,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BlogController;
 use App\Http\Controllers\ContactoController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\DocumentoBosOfsController;
 use App\Http\Controllers\DocumentoController;
 use App\Http\Controllers\DocumentoLegalController;
 use App\Http\Controllers\FormatoController;
@@ -69,6 +70,13 @@ Route::middleware('auth')->group(function () {
     Route::get('/formatos/{id}/ver', [FormatoController::class, 'ver'])->name('formatos.ver');
     Route::delete('/formatos/{id}', [FormatoController::class, 'destroy'])->name('formatos.destroy');
 
+    // Documentos BOS / OFS — reportes mensuales
+    Route::get('/documentos-bos-ofs', [DocumentoBosOfsController::class, 'indexView'])->name('documentos-bos-ofs.index.view');
+    Route::get('/documentos-bos-ofs/data', [DocumentoBosOfsController::class, 'index'])->name('documentos-bos-ofs.index');
+    Route::post('/documentos-bos-ofs/upload', [DocumentoBosOfsController::class, 'store'])->name('documentos-bos-ofs.upload');
+    Route::get('/documentos-bos-ofs/{id}/ver', [DocumentoBosOfsController::class, 'ver'])->name('documentos-bos-ofs.ver');
+    Route::delete('/documentos-bos-ofs/{id}', [DocumentoBosOfsController::class, 'destroy'])->name('documentos-bos-ofs.destroy');
+
     // Nóminas (portal del técnico)
     Route::get('/nominas/mi-nomina', [NominaController::class, 'miNominaView'])->name('nominas.minomina.view');
     Route::get('/nominas/mi-nomina/data', [NominaController::class, 'miNomina'])->name('nominas.minomina');
@@ -84,6 +92,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/nominas', [NominaController::class, 'indexView'])->name('nominas.index.view');
         Route::get('/nominas/data', [NominaController::class, 'index'])->name('nominas.index');
         Route::post('/nominas/calcular', [NominaController::class, 'calcular'])->name('nominas.calcular');
+        Route::post('/nominas/{id}/pagar', [NominaController::class, 'marcarPagada'])->name('nominas.pagar');
         Route::get('/nominas/reporte-contador', [NominaController::class, 'reporteContador'])->name('nominas.reporte');
         Route::get('/nominas/reporte-contador/csv', [NominaController::class, 'reporteContadorCsv'])->name('nominas.reporte.csv');
 

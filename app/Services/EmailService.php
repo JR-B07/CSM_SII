@@ -13,12 +13,6 @@ use Illuminate\Support\Facades\Mail;
  */
 class EmailService
 {
-    private const NOMBRES_MES = [
-        1 => 'enero', 2 => 'febrero', 3 => 'marzo', 4 => 'abril',
-        5 => 'mayo', 6 => 'junio', 7 => 'julio', 8 => 'agosto',
-        9 => 'septiembre', 10 => 'octubre', 11 => 'noviembre', 12 => 'diciembre',
-    ];
-
     public function enviarContacto(string $nombre, string $email, string $mensaje): void
     {
         Mail::raw(
@@ -38,16 +32,16 @@ class EmailService
      */
     public function enviarNominaLista(Usuario $usuario, Nomina $nomina): void
     {
-        $periodo = (self::NOMBRES_MES[$nomina->mes] ?? $nomina->mes).' '.$nomina->anio;
+        $periodo = $nomina->periodo_inicio->format('d/m/Y').' al '.$nomina->periodo_fin->format('d/m/Y');
 
         Mail::raw(
             "Hola {$usuario->nombre},\n\n".
-            "Tu nómina de {$periodo} ya está calculada y disponible en el portal de CSM Operaciones.\n".
+            "Tu nómina del {$periodo} ya está calculada y disponible en el portal de CSM Operaciones.\n".
             "Ingresa a tu cuenta y consulta la sección \"Mi Nómina\" para ver el detalle y descargar tu comprobante.\n\n".
             "CSM Operaciones",
             function ($message) use ($usuario, $periodo) {
                 $message->to($usuario->email)
-                    ->subject("Tu nómina de {$periodo} ya está lista");
+                    ->subject("Tu nómina del {$periodo} ya está lista");
             }
         );
     }
